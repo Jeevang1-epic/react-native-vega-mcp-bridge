@@ -1,0 +1,31 @@
+{
+  "name": "react-native-vega-mcp-bridge",
+  "version": "0.1.0",
+  "description": "Deterministic 10-foot Fire TV & Vega OS focus bridge for Alexa+ Streamable HTTP MCP cards and Ring WebRTC WHEP streams",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "vega-os",
+    "fire-tv",
+    "react-native-vega",
+    "mcp",
+    "alexa-plus",
+    "ring-whep",
+    "webrtc"
+  ],
+  "dependencies": {
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.3"
+  }
+}
