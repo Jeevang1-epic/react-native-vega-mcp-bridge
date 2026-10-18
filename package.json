@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
-  "license": "Apache-2.0",
+  "license": "MIT",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "vitest run",
