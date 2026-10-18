@@ -77,6 +77,8 @@ export class RingWhepSessionManager {
       if (!location) throw new Error("Missing WHEP session Location");
       const sessionUrl = new URL(location, whepUrl);
       if (sessionUrl.origin !== new URL(whepUrl).origin || !sessionUrl.pathname.startsWith(new URL(whepUrl).pathname + "/") || sessionUrl.username || sessionUrl.password || sessionUrl.hash) throw new Error("Invalid WHEP session Location");
+      // Preserve a trusted resource handle for cleanup if answer validation fails.
+      session.snapshot.location = sessionUrl.href;
       const answer = await response.text();
       if (!/^v=0\r?$/m.test(answer) || !/^m=video\s/m.test(answer) || !/^a=(sendonly|sendrecv)\r?$/m.test(answer)) throw new Error("Invalid SDP answer");
       session.snapshot = { deviceId: id, state: "connected", location: sessionUrl.href, answer };
@@ -106,13 +108,16 @@ export class RingWhepSessionManager {
  * and omits audio transceivers, preventing Ring WHEP 4xx negotiation rejections.
  */
 export function assertValidRingWhepSdpOffer(sdp: string): void {
-  if (!sdp.includes("m=video")) {
+  const lines = sdp.split(/\r?\n/);
+  if (lines[0] !== "v=0") throw new Error("SDP must start with v=0");
+  if (!lines.some(line => /^m=video\s/.test(line))) {
     throw new Error("Ring WHEP SDP offer must contain an m=video media description");
   }
-  if (sdp.includes("m=audio")) {
+  if (lines.some(line => /^m=audio\s/.test(line))) {
     throw new Error("Ring WHEP endpoint rejects SDP offers containing m=audio transceivers");
   }
-  if (!sdp.includes("a=recvonly")) {
+  if (lines.filter(line => line.startsWith("m=")).length !== 1) throw new Error("Ring WHEP requires one video media section");
+  if (!lines.includes("a=recvonly") || lines.some(line => /^a=(sendonly|sendrecv|inactive)$/.test(line))) {
     throw new Error("Ring WHEP SDP offer must specify a=recvonly direction");
   }
 }
