@@ -1,4 +1,22 @@
-import { VegaMcpOverlayCard, VegaMcpActionItem } from "../types/protocol.js";
+import { VegaMcpOverlayCard, VegaMcpActionItem, VegaMcpOverlayCardSchema } from "../types/protocol.js";
+
+export interface PlaybackPosition { currentTime: number; timelineId: string }
+export interface PlaybackBookmark { readonly seconds: number; readonly timelineId: string }
+export interface CatchUpWindow { startSeconds: number; endSeconds: number; durationSeconds: number; timelineId: string }
+function validatePosition(position: PlaybackPosition): void {
+  if (!Number.isFinite(position.currentTime) || position.currentTime < 0 || !position.timelineId.trim()) throw new Error("Playback requires a finite nonnegative position and timeline ID");
+}
+/** Pass the MSE/EME player's media currentTime, not wall-clock time or the live edge. */
+export function captureInterruptionTimestamp(position: PlaybackPosition): PlaybackBookmark {
+  validatePosition(position);
+  return Object.freeze({ seconds: position.currentTime, timelineId: position.timelineId });
+}
+export function computeCatchUpWindow(bookmark: PlaybackBookmark, position: PlaybackPosition): CatchUpWindow {
+  validatePosition(position);
+  validatePosition({ currentTime: bookmark.seconds, timelineId: bookmark.timelineId });
+  if (bookmark.timelineId !== position.timelineId || position.currentTime < bookmark.seconds) throw new Error("Playback timeline changed; exact catch-up is unavailable");
+  return { startSeconds: bookmark.seconds, endSeconds: position.currentTime, durationSeconds: position.currentTime - bookmark.seconds, timelineId: bookmark.timelineId };
+}
 
 export interface FocusStateSnapshot {
   activeCardId: string | null;
@@ -12,6 +30,7 @@ export interface FocusStateSnapshot {
  * Ensures D-pad focus transitions cleanly into PiP overlays and restores media player focus on dismiss.
  */
 export class VegaFocusCoordinator {
+  private bookmark: PlaybackBookmark | null = null;
   private state: FocusStateSnapshot = {
     activeCardId: null,
     focusedActionId: null,
@@ -19,14 +38,17 @@ export class VegaFocusCoordinator {
     focusLockedInsideOverlay: false
   };
 
-  public presentOverlay(card: VegaMcpOverlayCard, currentTvElementId: string): FocusStateSnapshot {
+  public presentOverlay(card: VegaMcpOverlayCard, currentTvElementId: string, playback?: PlaybackPosition): FocusStateSnapshot {
+    card = VegaMcpOverlayCardSchema.parse(card);
+    if (!currentTvElementId.trim()) throw new Error("Focus restoration requires an element ID");
+    if (!this.state.focusLockedInsideOverlay) this.bookmark = playback ? captureInterruptionTimestamp(playback) : null;
     const primaryAction =
       card.actions.find((a) => a.isPrimaryFocus) ?? card.actions[0];
 
     this.state = {
       activeCardId: card.cardId,
       focusedActionId: primaryAction ? primaryAction.id : null,
-      previousTvElementId: currentTvElementId,
+      previousTvElementId: this.state.previousTvElementId ?? currentTvElementId,
       focusLockedInsideOverlay: true
     };
     return { ...this.state };
@@ -42,14 +64,30 @@ export class VegaFocusCoordinator {
     return { ...this.state };
   }
 
-  public dismissOverlay(): { restoredElementId: string | null; snapshot: FocusStateSnapshot } {
+  public captureInterruptionTimestamp(position: PlaybackPosition): PlaybackBookmark {
+    if (!this.bookmark) this.bookmark = captureInterruptionTimestamp(position);
+    return { ...this.bookmark };
+  }
+
+  public computeCatchUpWindow(position: PlaybackPosition): CatchUpWindow | null {
+    return this.bookmark ? computeCatchUpWindow(this.bookmark, position) : null;
+  }
+
+  public dismissOverlay(playback?: PlaybackPosition): { restoredElementId: string | null; snapshot: FocusStateSnapshot; catchUpWindow: CatchUpWindow | null; catchUpUnavailable: boolean } {
     const restoredElementId = this.state.previousTvElementId;
+    let catchUpWindow: CatchUpWindow | null = null;
+    let catchUpUnavailable = false;
+    if (this.bookmark) {
+      if (!playback) catchUpUnavailable = true;
+      else { try { catchUpWindow = computeCatchUpWindow(this.bookmark, playback); } catch { catchUpUnavailable = true; } }
+    }
+    this.bookmark = null;
     this.state = {
       activeCardId: null,
       focusedActionId: null,
       previousTvElementId: null,
       focusLockedInsideOverlay: false
     };
-    return { restoredElementId, snapshot: { ...this.state } };
+    return { restoredElementId, snapshot: { ...this.state }, catchUpWindow, catchUpUnavailable };
   }
 }
